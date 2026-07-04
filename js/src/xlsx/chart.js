@@ -17,7 +17,8 @@ const C_NS = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
 const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
-export const CLASSIC_TYPES = new Set(['column', 'bar', 'line', 'area', 'pie', 'doughnut', 'scatter', 'combo']);
+export const CLASSIC_TYPES = new Set(['column', 'bar', 'line', 'area', 'pie', 'doughnut', 'scatter', 'combo', 'radar', 'bubble', 'stock']);
+export const CHARTEX_TYPES = new Set(['treemap', 'sunburst', 'waterfall', 'funnel', 'histogram', 'pareto', 'box-whisker', 'map']);
 
 export function isClassicChart(type) {
   return CLASSIC_TYPES.has(baseType(type));
@@ -70,17 +71,22 @@ export function chartSpaceXml(chart, { ownSheet, tableIndex, themeColors, report
     const [cat, ...vals] = parts;
     series = vals.length ? vals.map((v, i) => ({ name: `Series ${i + 1}`, cat, val: v })) : [{ name: 'Series 1', val: cat }];
   }
-  series = (series ?? []).map((s, i) => ({ ...s, _idx: i, _kind: baseType(s.kind ?? type), _grouping: grouping(s.kind ?? type), _axis: s.axis === 'y2' ? 'secondary' : 'primary' }));
+  series = (series ?? []).map((s, i) => ({
+    ...s, _idx: i, _kind: baseType(s.kind ?? type), _grouping: grouping(s.kind ?? type),
+    _3d: String(s.kind ?? type).endsWith('-3d'), _axis: s.axis === 'y2' ? 'secondary' : 'primary',
+  }));
 
-  // Group series into plot blocks by (kind, axis).
+  // Group series into plot blocks by (kind, axis, 3d).
   const blocks = [];
   for (const s of series) {
-    let blk = blocks.find((b) => b.kind === s._kind && b.axis === s._axis);
-    if (!blk) { blk = { kind: s._kind, axis: s._axis, grouping: s._grouping, series: [] }; blocks.push(blk); }
+    let blk = blocks.find((b) => b.kind === s._kind && b.axis === s._axis && b.threeD === s._3d);
+    if (!blk) { blk = { kind: s._kind, axis: s._axis, grouping: s._grouping, threeD: s._3d, series: [] }; blocks.push(blk); }
     blk.series.push(s);
   }
+  const any3d = blocks.some((b) => b.threeD);
 
   const AX = { primary: [1001, 1002], secondary: [1003, 1004] };
+  const AX_SER = 1005;
   const usesSecondary = blocks.some((b) => b.axis === 'secondary');
   const color = (v, fallback) => resolveColor(v ?? fallback ?? '', themeColors);
 
@@ -147,15 +153,15 @@ export function chartSpaceXml(chart, { ownSheet, tableIndex, themeColors, report
   };
 
   const serXml = (s, blockKind) => {
-    const isLine = blockKind === 'line';
-    const isScatter = blockKind === 'scatter';
+    const isLine = blockKind === 'line' || blockKind === 'stock' || blockKind === 'radar';
+    const isScatter = blockKind === 'scatter' || blockKind === 'bubble';
     const name = s['name-ref']
       ? `<c:tx><c:strRef><c:f>${esc(String(s['name-ref']).replace(/^=/, ''))}</c:f></c:strRef></c:tx>`
       : s.name !== undefined ? `<c:tx><c:v>${esc(s.name)}</c:v></c:tx>` : '';
     const marker = isLine || isScatter
       ? `<c:marker><c:symbol val="${s.marker ?? 'none'}"/></c:marker>` : '';
     const data = isScatter
-      ? `${s.cat ? valXml({ val: s.cat }, 'c:xVal') : ''}${valXml(s, 'c:yVal')}`
+      ? `${s.cat ? valXml({ val: s.cat }, 'c:xVal') : ''}${valXml(s, 'c:yVal')}${blockKind === 'bubble' && s.size ? valXml({ val: s.size }, 'c:bubbleSize') : ''}`
       : `${catXml(s)}${valXml(s)}`;
     return `<c:ser><c:idx val="${s._idx}"/><c:order val="${s._idx}"/>${name}`
       + spPrFor(s, isLine || isScatter)
@@ -164,33 +170,41 @@ export function chartSpaceXml(chart, { ownSheet, tableIndex, themeColors, report
       + trendlineXml(s.trendline)
       + errBarsXml(s['error-bars'])
       + data
-      + (isLine ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : '')
+      + (blockKind === 'line' || blockKind === 'stock' ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : '')
       + '</c:ser>';
   };
 
   const blockXml = (blk) => {
     const [catAx, valAx] = AX[blk.axis];
     const sers = blk.series.map((s) => serXml(s, blk.kind)).join('');
-    const axes = `<c:axId val="${catAx}"/><c:axId val="${valAx}"/>`;
+    const d3 = blk.threeD;
+    const axes = `<c:axId val="${catAx}"/><c:axId val="${valAx}"/>${d3 ? `<c:axId val="${AX_SER}"/>` : ''}`;
     switch (blk.kind) {
       case 'column':
       case 'bar': {
         const first = blk.series[0];
-        return `<c:barChart><c:barDir val="${blk.kind === 'bar' ? 'bar' : 'col'}"/><c:grouping val="${blk.grouping ?? 'clustered'}"/><c:varyColors val="0"/>${sers}`
+        return `<c:bar${d3 ? '3D' : ''}Chart><c:barDir val="${blk.kind === 'bar' ? 'bar' : 'col'}"/><c:grouping val="${blk.grouping ?? 'clustered'}"/><c:varyColors val="0"/>${sers}`
           + `<c:gapWidth val="${first.gap ?? 150}"/>`
-          + (first.overlap !== undefined ? `<c:overlap val="${first.overlap}"/>` : blk.grouping ? '<c:overlap val="100"/>' : '')
-          + `${axes}</c:barChart>`;
+          + (!d3 && first.overlap !== undefined ? `<c:overlap val="${first.overlap}"/>` : !d3 && blk.grouping ? '<c:overlap val="100"/>' : '')
+          + (d3 ? '<c:shape val="box"/>' : '')
+          + `${axes}</c:bar${d3 ? '3D' : ''}Chart>`;
       }
       case 'line':
-        return `<c:lineChart><c:grouping val="${blk.grouping ?? 'standard'}"/><c:varyColors val="0"/>${sers}<c:marker val="1"/>${axes}</c:lineChart>`;
+        return `<c:line${d3 ? '3D' : ''}Chart><c:grouping val="${blk.grouping ?? 'standard'}"/><c:varyColors val="0"/>${sers}<c:marker val="1"/>${axes}</c:line${d3 ? '3D' : ''}Chart>`;
       case 'area':
-        return `<c:areaChart><c:grouping val="${blk.grouping ?? 'standard'}"/><c:varyColors val="0"/>${sers}${axes}</c:areaChart>`;
+        return `<c:area${d3 ? '3D' : ''}Chart><c:grouping val="${blk.grouping ?? 'standard'}"/><c:varyColors val="0"/>${sers}${axes}</c:area${d3 ? '3D' : ''}Chart>`;
       case 'pie':
-        return `<c:pieChart><c:varyColors val="1"/>${sers}<c:firstSliceAng val="0"/></c:pieChart>`;
+        return `<c:pie${d3 ? '3D' : ''}Chart><c:varyColors val="1"/>${sers}${d3 ? '' : '<c:firstSliceAng val="0"/>'}</c:pie${d3 ? '3D' : ''}Chart>`;
       case 'doughnut':
         return `<c:doughnutChart><c:varyColors val="1"/>${sers}<c:firstSliceAng val="0"/><c:holeSize val="50"/></c:doughnutChart>`;
       case 'scatter':
         return `<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>${sers}${axes}</c:scatterChart>`;
+      case 'radar':
+        return `<c:radarChart><c:radarStyle val="marker"/><c:varyColors val="0"/>${sers}${axes}</c:radarChart>`;
+      case 'bubble':
+        return `<c:bubbleChart><c:varyColors val="0"/>${sers}<c:bubbleScale val="100"/>${axes}</c:bubbleChart>`;
+      case 'stock':
+        return `<c:stockChart>${sers}<c:hiLowLines/>${axes}</c:stockChart>`;
       default:
         return '';
     }
@@ -241,6 +255,9 @@ export function chartSpaceXml(chart, { ownSheet, tableIndex, themeColors, report
       axesXml += valAxXml(AX.secondary[1], AX.secondary[0], 'r', axesMeta.y2 ?? {}, true)
         + catAxXml(AX.secondary[0], AX.secondary[1], true, {});
     }
+    if (any3d) {
+      axesXml += `<c:serAx><c:axId val="${AX_SER}"/><c:scaling><c:orientation val="minMax"/></c:scaling><c:delete val="0"/><c:axPos val="b"/><c:crossAx val="${AX.primary[1]}"/></c:serAx>`;
+    }
   }
 
   const dt = meta['data-table'];
@@ -256,6 +273,7 @@ export function chartSpaceXml(chart, { ownSheet, tableIndex, themeColors, report
     + `<c:chartSpace xmlns:c="${C_NS}" xmlns:a="${A_NS}" xmlns:r="${R_NS}">`
     + '<c:chart>'
     + titleXml(chart.title)
+    + (any3d ? '<c:view3D><c:rotX val="15"/><c:rotY val="20"/><c:rAngAx val="1"/></c:view3D>' : '')
     + `<c:plotArea><c:layout/>${blocks.map(blockXml).join('')}${axesXml}${dTableXml}</c:plotArea>`
     + legendXml
     + '<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/>'

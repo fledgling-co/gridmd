@@ -93,23 +93,19 @@ rule, which is absolute.
 
 ## Status
 
-**Version 0.1 — draft.** The grammar is specified, a **reference parser +
-linter** machine-validates documents against it (the worked example lints
-clean: 5 sheets, 140 defined cells, 0 errors), and the **GridMD → XLSX
-transformer** emits the full feature set — the example converts with **zero
-not-emitted features** (charts, chart sheet, pivot, sparklines, slicer,
-image, textbox, threaded comments, scenario, sort state all native; 40-part
-package, zip integrity + XML well-formedness independently verified). The
-**XLSX → GridMD importer closes the round-trip loop**: the example's 140
-defined cells survive `.gmd → .xlsx → .gmd′` exactly, with tables, CF,
-validation, comments, scenarios, sparklines and names intact and `.gmd′`
-linting clean. Still open: ChartEx-family chart types (treemap/sunburst/…)
-and timeline caches (carried in-package), chart/pivot/slicer *reverse*
-parsing in the importer (carried as `{raw}` on import), engine-computed
-cached values, and an **open-in-real-Excel test — the pivot/slicer/chart XML
-is structurally verified but has never been opened by Excel itself** (none
-on the dev machine). Naming is provisional: *GridMD* is the spec/working
-name; *SheetMark* is the leading marketing-name candidate.
+**Version 0.1 — draft.** The grammar is specified and the reference
+implementation is **feature-complete in both directions**: every chart family
+(classic chartML incl. radar/bubble/stock/-3d; ChartEx treemap/sunburst/
+waterfall/funnel/histogram/pareto/box-whisker/map), PivotCharts, pivot
+timelines, pivots, sparklines, slicers, images, shapes, threaded comments and
+scenarios emit natively AND reverse-parse; the worked example round-trips
+`.gmd → .xlsx → .gmd′` with its 140 cells intact; and every cached value is
+machine-verified by the bounded formula evaluator (`gridmd-calc`: 13/13, 0
+unsupported). Go, Rust and Swift ports plus the Bun/TS/npm packaging are in
+flight — see PLAN.md and conformance/README.md. The one check impossible on
+this machine remains the **open-in-real-Excel test** (structural verification
+only). Naming is provisional: *GridMD* is the spec/working name; *SheetMark*
+is the leading marketing-name candidate.
 
 ## Non-goals
 

@@ -38,11 +38,13 @@ carries via escape hatch, or fails loudly.
 | Tables (`tables/table1.xml`) | `{table}` | F0 |
 | AutoFilter + sort state (`autoFilter`, `sortState`) | `{filter}` / table `filter:`/`sort:` | F1 |
 | Data validation (`dataValidations`) | `{validation}` | F0 |
-| Charts (`charts/chart1.xml`) | `{chart}` — classic chartML types emitted natively (column/bar/line/area/pie/doughnut/scatter/combo + stacked, secondary axis, trendlines, error bars, data labels, axes); ChartEx-family types (treemap/sunburst/waterfall/funnel/histogram/pareto/box-whisker/map) carried in-package pending `cx:` emission | F1/F2 |
+| Charts (`charts/chart1.xml`, `charts/chartEx1.xml`) | `{chart}` — classic chartML emitted natively (column/bar/line/area/pie/doughnut/scatter/radar/bubble/stock/combo + stacked/`-3d` variants, secondary axis, trendlines, error bars, data labels, axes) AND ChartEx `cx:` parts for treemap/sunburst/waterfall/funnel/histogram/pareto/box-whisker/map with literal data points; both reverse-parsed on import | F1 |
+| PivotCharts (`pivotSource`) | `{chart} pivot:` — emitted with a `c:pivotSource` binding + the pivot output range as the initial series (Excel repopulates on refresh) | F1 |
 | Chart sheets (`chartsheets/`) | `{sheet} kind: chart` + `{chart} at sheet` — emitted natively | F1 |
 | Sparklines (x14 extLst) | `{sparklines}` — emitted natively | F1 |
 | Pivot tables (`pivotTable/CacheDefinition/CacheRecords`) | `{pivot}` — cache definition + empty records emitted with `refreshOnLoad`; Excel rebuilds from in-document source; OLAP → `fallback:` | F1/F2 |
-| Slicers (x14/x15 parts) | `{slicer}` — table slicers emitted natively; timelines carried pending timeline caches | F1/F2 |
+| Slicers (x14/x15 parts) | `{slicer}` — table slicers emitted natively | F1 |
+| Timelines (`timelineCaches/`, `timelines/`) | `{slicer} kind: timeline` — emitted natively for pivot targets (Excel has no table timelines; a table-targeted timeline is carried with a loud note); reverse-parsed on import | F1 |
 | What-if scenarios (`scenarios`) | `{scenario}` | F1 |
 | Chart sheets (`chartsheets/sheet1.xml`) | `{sheet} kind: chart` + `{chart}` `at sheet` | F1 |
 | Hyperlinks (`hyperlinks` + rels) | `link:`/`tip:` props | F0 |

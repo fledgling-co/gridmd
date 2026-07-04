@@ -127,6 +127,13 @@ export function xlsxToGridmd(buffer) {
       slicerCaches.set(doc.attrs.name, { part: name, doc });
     }
   }
+  const timelineCaches = new Map(); // cache name -> { part, doc }
+  for (const name of parts.keys()) {
+    if (/^xl\/timelineCaches\//.test(name)) {
+      const doc = parseXml(parts.get(name).toString('utf8'));
+      timelineCaches.set(doc.attrs.name, { part: name, doc });
+    }
+  }
 
   // ---- defined names ----
   const names = [];
@@ -346,6 +353,8 @@ export function xlsxToGridmd(buffer) {
         }
         const slicerEl = findDeep(anchor.el, 'slicer');
         if (slicerEl?.attrs.name) { slicerAnchors.set(slicerEl.attrs.name, spec); continue; }
+        const tsEl = findDeep(anchor.el, 'timeslicer');
+        if (tsEl?.attrs.name) { slicerAnchors.set(tsEl.attrs.name, spec); continue; }
         const pic = one(anchor.el, 'pic');
         if (pic) {
           const lines = reversePicture(pic, spec, mediaLookup);
@@ -383,6 +392,31 @@ export function xlsxToGridmd(buffer) {
         const lines = cache && reverseSlicer(sl, cache.doc, tableNameById, slicerAnchors.get(sl.attrs.name));
         if (lines) { consumed.add(cache.part); drawingBlocks.push(...lines); }
         else report.push({ feature: rel.target, action: 'carried', note: 'unrecognized slicer form — carried as {raw}' });
+      }
+    }
+
+    // ---- timelines ----
+    for (const [, rel] of wsRels) {
+      if (!rel.target.startsWith('xl/timelines/')) continue;
+      const tDoc = xml(rel.target);
+      if (!tDoc) continue;
+      for (const tl of all(tDoc, 'timeline')) {
+        const cache = timelineCaches.get(tl.attrs.cache);
+        const pivotName = cache && one(one(cache.doc, 'pivotTables') ?? { children: [] }, 'pivotTable')?.attrs.name;
+        if (!pivotName) {
+          report.push({ feature: rel.target, action: 'carried', note: 'unrecognized timeline form — carried as {raw}' });
+          continue;
+        }
+        consumed.add(cache.part);
+        const spec = slicerAnchors.get(tl.attrs.name) ?? { at: 'A1', size: { w: 320, h: 110 } };
+        const LEVEL_REV = ['years', 'quarters', 'months', 'days'];
+        drawingBlocks.push(
+          `\`\`\`{slicer} at ${spec.at}${spec.size ? ` size ${spec.size.w}x${spec.size.h}` : ''}`,
+          'kind: timeline',
+          `for: ${pivotName}`,
+          `field: ${cache.doc.attrs.sourceName}`,
+          `level: ${LEVEL_REV[Number(tl.attrs.level ?? 2)] ?? 'months'}`,
+          '```', '');
       }
     }
 

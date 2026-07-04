@@ -86,6 +86,24 @@ export function shapeFrame(id, shape, anchor, themeColors) {
   return wrapAnchor(anchor, inner);
 }
 
+export function chartExFrame(id, name, relId, anchor) {
+  const CX_DRAWING = 'http://schemas.microsoft.com/office/drawing/2014/chartex';
+  const inner = `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="${esc(name)}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
+    + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+    + `<a:graphic><a:graphicData uri="${CX_DRAWING}"><cx:chart xmlns:cx="${CX_DRAWING}" xmlns:r="${R_NS}" r:id="${relId}"/></a:graphicData></a:graphic>`
+    + '</xdr:graphicFrame>';
+  return wrapAnchor(anchor, inner);
+}
+
+export function timesliceFrame(id, name, anchor) {
+  const TSLE = 'http://schemas.microsoft.com/office/drawing/2012/timeslicer';
+  const inner = `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="${esc(name)}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
+    + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+    + `<a:graphic><a:graphicData uri="${TSLE}"><tsle:timeslicer xmlns:tsle="${TSLE}" name="${esc(name)}"/></a:graphicData></a:graphic>`
+    + '</xdr:graphicFrame>';
+  return wrapAnchor(anchor, inner);
+}
+
 export function slicerFrame(id, name, anchor) {
   const inner = `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${id}" name="${esc(name)}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>`
     + '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'

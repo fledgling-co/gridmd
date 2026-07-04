@@ -12,8 +12,9 @@ import { zipWrite } from './zip.js';
 import { StyleRegistry, parseBorderEdge } from './styles.js';
 import { isoToSerial, pxToColWidth, pxToPt, cmToInch, resolveColor } from './units.js';
 import { numToCol, colToNum, parseTarget, parseCell, refKey } from '../refs.js';
-import { chartSpaceXml, isClassicChart } from './chart.js';
-import { parseAnchor, chartFrame, pictureFrame, shapeFrame, slicerFrame, drawingXml } from './drawing.js';
+import { chartSpaceXml, isClassicChart, resolveDataRef } from './chart.js';
+import { chartExXml, isChartExType, CX_NS } from './chartex.js';
+import { parseAnchor, chartFrame, chartExFrame, pictureFrame, shapeFrame, slicerFrame, timesliceFrame, drawingXml } from './drawing.js';
 import { buildPivotParts } from './pivot.js';
 
 const esc = (s) => String(s)
@@ -47,6 +48,9 @@ const CT = {
   person: 'application/vnd.ms-excel.person+xml',
   slicer: 'application/vnd.ms-excel.slicer+xml',
   slicerCache: 'application/vnd.ms-excel.slicerCache+xml',
+  chartEx: 'application/vnd.ms-office.chartex+xml',
+  timeline: 'application/vnd.ms-excel.timeline+xml',
+  timelineCache: 'application/vnd.ms-excel.timelineCacheDefinition+xml',
 };
 const REL = {
   worksheet: `${R_NS}/worksheet`, chartsheet: `${R_NS}/chartsheet`,
@@ -58,6 +62,9 @@ const REL = {
   person: 'http://schemas.microsoft.com/office/2017/10/relationships/person',
   slicer: 'http://schemas.microsoft.com/office/2007/relationships/slicer',
   slicerCache: 'http://schemas.microsoft.com/office/2007/relationships/slicerCache',
+  chartEx: 'http://schemas.microsoft.com/office/2014/relationships/chartEx',
+  timeline: 'http://schemas.microsoft.com/office/2011/relationships/timeline',
+  timelineCache: 'http://schemas.microsoft.com/office/2011/relationships/timelineCacheDefinition',
 };
 
 const PAPER = { letter: 1, tabloid: 3, legal: 5, a3: 8, a4: 9, a5: 11 };
@@ -108,11 +115,12 @@ export function writeXlsx(model) {
   const overrides = [];
   const mediaDefaults = new Set();
   const carryList = [...(carry ?? [])];
-  let wsCount = 0, csCount = 0, chartCount = 0, drawingCount = 0, tableCount = 0;
-  let commentCount = 0, tcCount = 0, pivotCount = 0, slicerCount = 0, mediaCount = 0;
+  let wsCount = 0, csCount = 0, chartCount = 0, chartExCount = 0, drawingCount = 0, tableCount = 0;
+  let commentCount = 0, tcCount = 0, pivotCount = 0, slicerCount = 0, mediaCount = 0, timelineCount = 0;
   let anyVml = false;
   const wbPivotCaches = [];  // { cacheId, target }
   const wbSlicerCaches = []; // { target }
+  const wbTimelineCaches = []; // { target }
   const persons = new Map(); // name -> guid
 
   // Pre-assign table part ids (slicers reference tables across sheets).
@@ -142,6 +150,38 @@ export function writeXlsx(model) {
   };
   const relsXml = (rels) =>
     `${XMLDECL}<Relationships xmlns="${PKG_REL_NS}">${rels.join('')}</Relationships>`;
+
+  // Pivot registry (name → cacheId/sheet) — timelines + PivotCharts need it
+  // before/across sheet rendering. cacheIds assigned in emission order.
+  const pivotRegistry = new Map();
+  {
+    let cid = 0;
+    sheets.forEach((sh, i) => {
+      if (sh.kind === 'chart') return;
+      for (const p of sh.pivots) {
+        cid++;
+        pivotRegistry.set(String(p.name).toLowerCase(), { cacheId: cid, sheetIdx: i, sheetName: sh.name, anchor: p.anchor });
+      }
+    });
+  }
+
+  // Literal range values for ChartEx data points, read from the model cells.
+  const rangeLiterals = (refText, ownSheet) => {
+    const f = resolveDataRef(refText, ownSheet, tableIndex);
+    if (!f) return null;
+    const m = /^(?:'([^']+)'|([A-Za-z_][A-Za-z0-9_]*))!\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)$/.exec(f);
+    if (!m) return null;
+    const sheet = sheets.find((x) => x.name.toLowerCase() === (m[1] ?? m[2]).toLowerCase());
+    if (!sheet) return null;
+    const c1 = colToNum(m[3]), r1 = Number(m[4]), c2 = colToNum(m[5]), r2 = Number(m[6]);
+    const values = [];
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+      const content = sheet.cells.get(refKey(c, r))?.content;
+      const sc = content?.scalar ?? content?.cached;
+      values.push(sc?.kind === 'number' ? sc.value : sc?.value !== undefined ? String(sc.value) : null);
+    }
+    return { f, values };
+  };
 
   const rendered = sheets.map((s) => s.kind === 'chart' ? renderChartSheet(s) : renderSheet(s));
 
@@ -185,14 +225,24 @@ export function writeXlsx(model) {
       return `<pivotCache cacheId="${p.cacheId}" r:id="${rid}"/>`;
     }).join('')}</pivotCaches>` : '';
   let slicerCachesExt = '';
+  const wbExts = [];
   if (wbSlicerCaches.length) {
     const refs = wbSlicerCaches.map((sc) => {
       const rid = nextWbRel();
       wbRels.push(`<Relationship Id="${rid}" Type="${REL.slicerCache}" Target="${sc.target}"/>`);
       return `<x14:slicerCache r:id="${rid}"/>`;
     }).join('');
-    slicerCachesExt = `<extLst><ext uri="{46BE6895-7355-4a93-B00E-2C351335B9C9}" xmlns:x15="${X15_NS}"><x15:slicerCaches xmlns:x14="${X14_NS}">${refs}</x15:slicerCaches></ext></extLst>`;
+    wbExts.push(`<ext uri="{46BE6895-7355-4a93-B00E-2C351335B9C9}" xmlns:x15="${X15_NS}"><x15:slicerCaches xmlns:x14="${X14_NS}">${refs}</x15:slicerCaches></ext>`);
   }
+  if (wbTimelineCaches.length) {
+    const refs = wbTimelineCaches.map((tc) => {
+      const rid = nextWbRel();
+      wbRels.push(`<Relationship Id="${rid}" Type="${REL.timelineCache}" Target="${tc.target}"/>`);
+      return `<x15:timelineCacheRef r:id="${rid}"/>`;
+    }).join('');
+    wbExts.push(`<ext uri="{D0CA8CA8-9F24-4464-BF8E-62219DCF47F9}" xmlns:x15="${X15_NS}"><x15:timelineCacheRefs xmlns:r="${R_NS}">${refs}</x15:timelineCacheRefs></ext>`);
+  }
+  if (wbExts.length) slicerCachesExt = `<extLst>${wbExts.join('')}</extLst>`;
   if (persons.size) {
     const rid = nextWbRel();
     wbRels.push(`<Relationship Id="${rid}" Type="${REL.person}" Target="persons/person.xml"/>`);
@@ -258,21 +308,45 @@ export function writeXlsx(model) {
 
   // ================= chart emission (shared) =================
   function emitChart(chart, ownSheetName) {
+    if (isChartExType(chart.type)) {
+      const xml = chartExXml(chart, (ref) => rangeLiterals(ref, ownSheetName));
+      if (!xml) {
+        report.push({ line: chart.line, feature: `{chart} ${chart.type}`, action: 'not-emitted', note: 'ChartEx requires a resolvable val: range' });
+        return null;
+      }
+      chartExCount++;
+      const partName = `xl/charts/chartEx${chartExCount}.xml`;
+      addPart(partName, xml, CT.chartEx);
+      return { part: partName, ex: true };
+    }
     if (!isClassicChart(chart.type)) {
       carryList.push({ kind: 'chart', line: chart.line, feature: `{chart} ${chart.type}`, meta: chart.meta });
-      report.push({ line: chart.line, feature: `{chart} ${chart.type}`, action: 'carried', note: 'ChartEx-family type; definition carried in-package pending cx emission' });
+      report.push({ line: chart.line, feature: `{chart} ${chart.type}`, action: 'carried', note: 'unknown chart type; definition carried in-package' });
       return null;
     }
+    let effective = chart;
+    let pivotSource = '';
     if (chart.meta?.pivot !== undefined) {
-      carryList.push({ kind: 'chart', line: chart.line, feature: '{chart} pivot-bound', meta: chart.meta });
-      report.push({ line: chart.line, feature: '{chart} (PivotChart)', action: 'carried', note: 'PivotChart binding carried; plot the pivot output range directly for native emission' });
-      return null;
+      const reg = pivotRegistry.get(String(chart.meta.pivot).toLowerCase());
+      if (!reg) {
+        carryList.push({ kind: 'chart', line: chart.line, feature: '{chart} pivot-bound', meta: chart.meta });
+        report.push({ line: chart.line, feature: '{chart} (PivotChart)', action: 'carried', note: 'pivot target not found' });
+        return null;
+      }
+      // Native PivotChart: declare the pivotSource; series plot the pivot
+      // output area and Excel repopulates them on refresh.
+      const t = parseTarget(reg.anchor ?? 'A3') ?? { c1: 1, r1: 3 };
+      const dataCol = numToCol(t.c1 + 1);
+      const valRange = `${quoteSheet(reg.sheetName)}!$${dataCol}$${t.r1 + 1}:$${dataCol}$${t.r1 + 4}`;
+      pivotSource = `<c:pivotSource><c:name>[]${esc(reg.sheetName)}!${esc(String(chart.meta.pivot))}</c:name><c:fmtId val="0"/></c:pivotSource>`;
+      effective = { ...chart, meta: { ...chart.meta, pivot: undefined, series: [{ name: String(chart.meta.pivot), val: valRange }] } };
     }
     chartCount++;
     const partName = `xl/charts/chart${chartCount}.xml`;
-    const xml = chartSpaceXml(chart, { ownSheet: ownSheetName, tableIndex, themeColors, report });
+    let xml = chartSpaceXml(effective, { ownSheet: ownSheetName, tableIndex, themeColors, report });
+    if (pivotSource) xml = xml.replace('<c:chart>', `${pivotSource}<c:chart>`);
     addPart(partName, xml, CT.chart);
-    return partName;
+    return { part: partName, ex: false };
   }
 
   // ================= worksheet =================
@@ -529,10 +603,36 @@ export function writeXlsx(model) {
 
     // ---- slicers ----
     const sheetSlicerRelIds = [];
+    const sheetTimelineRelIds = [];
     for (const sl of s.slicers) {
       if (sl.kind === 'timeline') {
-        carryList.push({ kind: 'slicer', line: sl.line, meta: sl.meta });
-        report.push({ line: sl.line, feature: '{slicer} timeline', action: 'carried', note: 'timeline caches pending; definition carried in-package' });
+        const reg = pivotRegistry.get(String(sl.meta.for ?? '').toLowerCase());
+        if (!reg) {
+          carryList.push({ kind: 'slicer', line: sl.line, meta: sl.meta });
+          report.push({ line: sl.line, feature: '{slicer} timeline', action: 'carried', note: 'Excel timelines require a pivot target; definition carried in-package' });
+          continue;
+        }
+        timelineCount++;
+        const field = String(sl.meta.field);
+        const cacheName = `NativeTimeline_${field.replace(/[^A-Za-z0-9_]/g, '_')}`;
+        const LEVELS = { years: 0, quarters: 1, months: 2, days: 3 };
+        const level = LEVELS[sl.meta.level] ?? 2;
+        const [d1, d2] = Array.isArray(sl.meta.range) ? sl.meta.range : [null, null];
+        const dt = (d) => `${d ?? '1900-01-01'}T00:00:00`;
+        addPart(`xl/timelineCaches/timelineCache${timelineCount}.xml`,
+          `${XMLDECL}<timelineCacheDefinition xmlns="${X15_NS}" xmlns:r="${R_NS}" name="${esc(cacheName)}" sourceName="${esc(field)}">`
+          + `<pivotTables><pivotTable tabId="${reg.sheetIdx + 1}" name="${esc(sl.meta.for)}"/></pivotTables>`
+          + `<state minimalRefreshVersion="6" lastRefreshVersion="6" pivotCacheId="${reg.cacheId}" filterType="unknown">`
+          + `<selection startDate="${dt(d1)}" endDate="${dt(d2 ?? d1)}"/><bounds startDate="${dt(d1)}" endDate="${dt(d2 ?? d1)}"/>`
+          + '</state></timelineCacheDefinition>', CT.timelineCache);
+        addPart(`xl/timelines/timeline${timelineCount}.xml`,
+          `${XMLDECL}<timelines xmlns="${X15_NS}"><timeline name="${esc(field)}" cache="${esc(cacheName)}" caption="${esc(field)}" level="${level}" selectionLevel="${level}" scrollPosition="${dt(d1)}"/></timelines>`, CT.timeline);
+        const rid = nextRel();
+        rels.push(`<Relationship Id="${rid}" Type="${REL.timeline}" Target="../timelines/timeline${timelineCount}.xml"/>`);
+        sheetTimelineRelIds.push(rid);
+        wbTimelineCaches.push({ target: `timelineCaches/timelineCache${timelineCount}.xml` });
+        sl._name = field;
+        sl._timeline = true;
         continue;
       }
       const table = tableIndex.get(String(sl.meta.for ?? '').toLowerCase());
@@ -617,11 +717,12 @@ export function writeXlsx(model) {
     const nextDRel = () => `rId${++dRelId}`;
     let objId = 1;
     for (const chart of s.charts) {
-      const part = emitChart(chart, s.name);
-      if (!part) continue;
+      const em = emitChart(chart, s.name);
+      if (!em) continue;
       const rid = nextDRel();
-      drawingRels.push(`<Relationship Id="${rid}" Type="${REL.chart}" Target="../charts/${part.split('/').pop()}"/>`);
-      anchors.push(chartFrame(++objId, chart.title ?? `Chart ${objId}`, rid, parseAnchor(chart.anchor, chart.size)));
+      drawingRels.push(`<Relationship Id="${rid}" Type="${em.ex ? REL.chartEx : REL.chart}" Target="../charts/${em.part.split('/').pop()}"/>`);
+      const frame = em.ex ? chartExFrame : chartFrame;
+      anchors.push(frame(++objId, chart.title ?? `Chart ${objId}`, rid, parseAnchor(chart.anchor, chart.size)));
     }
     for (const img of s.images) {
       const media = loadImage(img);
@@ -639,7 +740,8 @@ export function writeXlsx(model) {
     }
     for (const sl of s.slicers) {
       if (!sl._name) continue;
-      anchors.push(slicerFrame(++objId, sl._name, parseAnchor(sl.anchor, sl.size ?? { w: 160, h: 200 })));
+      const frame = sl._timeline ? timesliceFrame : slicerFrame;
+      anchors.push(frame(++objId, sl._name, parseAnchor(sl.anchor, sl.size ?? (sl._timeline ? { w: 320, h: 110 } : { w: 160, h: 200 }))));
     }
     if (anchors.length) {
       drawingCount++;
@@ -662,6 +764,10 @@ export function writeXlsx(model) {
     if (sheetSlicerRelIds.length) {
       exts.push(`<ext uri="{A8765BA9-456A-4dab-B4F3-ACF838C121DE}" xmlns:x14="${X14_NS}">`
         + `<x14:slicerList>${sheetSlicerRelIds.map((rid) => `<x14:slicer xmlns:r="${R_NS}" r:id="${rid}"/>`).join('')}</x14:slicerList></ext>`);
+    }
+    if (sheetTimelineRelIds.length) {
+      exts.push(`<ext uri="{7E03D99C-DC04-49d9-9315-930204A7B6E9}" xmlns:x15="${X15_NS}">`
+        + `<x15:timelineRefs>${sheetTimelineRelIds.map((rid) => `<x15:timelineRef xmlns:r="${R_NS}" r:id="${rid}"/>`).join('')}</x15:timelineRefs></ext>`);
     }
     const extXml = exts.length ? `<extLst>${exts.join('')}</extLst>` : '';
 
@@ -705,15 +811,16 @@ export function writeXlsx(model) {
     const chart = s.charts[0];
     let drawingEl = '';
     if (chart) {
-      const part = emitChart(chart, s.name);
-      if (part) {
+      const em = emitChart(chart, s.name);
+      if (em) {
         drawingCount++;
         const rid = 'rId1';
-        const frame = chartFrame(2, chart.title ?? s.name, rid,
+        const frameFn = em.ex ? chartExFrame : chartFrame;
+        const frame = frameFn(2, chart.title ?? s.name, rid,
           { kind: 'absolute', x: 0, y: 0, cx: 9144000, cy: 6858000 });
         addPart(`xl/drawings/drawing${drawingCount}.xml`, drawingXml([frame]), CT.drawing);
         addPart(`xl/drawings/_rels/drawing${drawingCount}.xml.rels`,
-          relsXml([`<Relationship Id="${rid}" Type="${REL.chart}" Target="../charts/${part.split('/').pop()}"/>`]));
+          relsXml([`<Relationship Id="${rid}" Type="${em.ex ? REL.chartEx : REL.chart}" Target="../charts/${em.part.split('/').pop()}"/>`]));
         rels.push(`<Relationship Id="rId1" Type="${REL.drawing}" Target="../drawings/drawing${drawingCount}.xml"/>`);
         drawingEl = '<drawing r:id="rId1"/>';
       }

@@ -1,0 +1,24 @@
+[package]
+name = "gridmd"
+version = "0.1.0"
+edition = "2024"
+description = "GridMD — plain-text spreadsheet format with a two-way XLSX converter (Rust port)"
+license = "MIT"
+repository = "https://github.com/diolog/grid-md"
+
+[[bin]]
+name = "gridmd"
+path = "src/main.rs"
+
+[lib]
+name = "gridmd"
+path = "src/lib.rs"
+
+[dependencies]
+saphyr-parser = "0.0.5"
+flate2 = "1"
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3

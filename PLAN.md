@@ -42,14 +42,13 @@ swift/            Swift sources; root Package.swift for SPM (runner-built)
 ## Task state (mirror of the session task list)
 
 - [x] #1 Importer reverse-parsing (charts/pivots/slicers/images/shapes native)
-- [ ] #2 Final spec gaps: ChartEx (cx:) emission, timeline caches,
-      radar/bubble/stock classic types — in progress (main loop)
+- [x] #2 Final spec gaps: ChartEx (cx:), pivot timelines, radar/bubble/stock/-3d, PivotCharts — all native both directions
 - [⏸] #3 Bun + TS + npm packaging restructure — PAUSED pending Luke
 - [x] #4 Conformance suite (3 laws: dump-match, reject-invalid, round-trip;
       canonical dump = js/src/dump.js; fixtures + expected generated)
-- [ ] #5 Go port — Opus/xhigh runner
-- [ ] #6 Rust port — Opus/xhigh runner
-- [ ] #7 Swift port + SPM — Opus/xhigh runner
+- [~] #5 Go port — Opus/xhigh runner LAUNCHED (workflow wf_dfc76715-365)
+- [~] #6 Rust port — Opus/xhigh runner LAUNCHED (same workflow)
+- [~] #7 Swift port + SPM — Opus/xhigh runner LAUNCHED (same workflow)
 - [ ] #8 CI: coverage gates (bun/go/llvm-cov/swift), release binaries on tag,
       npm publish flow, SPM tag — after #3 unpauses
 

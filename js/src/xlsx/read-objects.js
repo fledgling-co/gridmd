@@ -73,19 +73,27 @@ const fenceAnchor = (a) => a.at === 'sheet' ? 'at sheet' : `at ${a.at}${a.size ?
 // ---- chart reversal ----
 const BLOCK_KINDS = new Map(Object.entries({
   barChart: 'bar', lineChart: 'line', areaChart: 'area', pieChart: 'pie',
-  doughnutChart: 'doughnut', scatterChart: 'scatter',
+  doughnutChart: 'doughnut', scatterChart: 'scatter', radarChart: 'radar',
+  bubbleChart: 'bubble', stockChart: 'stock',
+  bar3DChart: 'bar', line3DChart: 'line', area3DChart: 'area', pie3DChart: 'pie',
+}));
+const BLOCK_3D = new Set(['bar3DChart', 'line3DChart', 'area3DChart', 'pie3DChart']);
+const CX_TYPE_REV = new Map(Object.entries({
+  treemap: 'treemap', sunburst: 'sunburst', waterfall: 'waterfall',
+  funnel: 'funnel', boxWhisker: 'box-whisker', regionMap: 'map',
 }));
 
 export function reverseChart(chartDoc, anchorSpec) {
+  if (one(chartDoc, 'chartData')) return reverseChartEx(chartDoc, anchorSpec);
   const chart = one(chartDoc, 'chart');
   const plot = chart && one(chart, 'plotArea');
   if (!plot) return null;
   const blocks = [];
   for (const child of plot.children) {
     if (!BLOCK_KINDS.has(child.name)) continue;
-    blocks.push({ el: child, kind: BLOCK_KINDS.get(child.name) });
+    blocks.push({ el: child, kind: BLOCK_KINDS.get(child.name), threeD: BLOCK_3D.has(child.name) });
   }
-  if (!blocks.length) return null; // ChartEx or unknown → carry raw
+  if (!blocks.length) return null; // unknown → carry raw
 
   const valAxes = all(plot, 'valAx');
   const secondAxIds = valAxes.length > 1 ? new Set([attrVal(valAxes[1], 'axId')]) : new Set();
@@ -95,7 +103,8 @@ export function reverseChart(chartDoc, anchorSpec) {
     const grouping = one(blk.el, 'grouping')?.attrs.val;
     const suffix = grouping === 'stacked' ? '-stacked' : grouping === 'percentStacked' ? '-stacked100' : '';
     const barDir = one(blk.el, 'barDir')?.attrs.val;
-    const kind = blk.kind === 'bar' ? (barDir === 'bar' ? 'bar' : 'column') + suffix : blk.kind + suffix;
+    const kind = (blk.kind === 'bar' ? (barDir === 'bar' ? 'bar' : 'column') + suffix : blk.kind + suffix)
+      + (blk.threeD ? '-3d' : '');
     const axIds = all(blk.el, 'axId').map((x) => x.attrs.val);
     const secondary = axIds.some((id) => secondAxIds.has(id));
     const gap = one(blk.el, 'gapWidth')?.attrs.val;
@@ -328,4 +337,44 @@ function findDeep(el, name) {
     if (found) return found;
   }
   return null;
+}
+
+// ---- ChartEx (cx:) reversal — restores type, series refs, title, legend ----
+const FENCE = '```';
+
+export function reverseChartEx(doc, anchorSpec) {
+  const chart = one(doc, 'chart');
+  const region = chart && one(one(chart, 'plotArea') ?? { children: [] }, 'plotAreaRegion');
+  if (!region) return null;
+  const seriesEls = all(region, 'series');
+  if (!seriesEls.length) return null;
+  const layouts = seriesEls.map((s) => s.attrs.layoutId);
+  let type;
+  if (layouts.includes('paretoLine')) type = 'pareto';
+  else if (layouts[0] === 'clusteredColumn') type = 'histogram';
+  else type = CX_TYPE_REV.get(layouts[0]) ?? null;
+  if (!type) return null;
+  const data = one(one(doc, 'chartData') ?? { children: [] }, 'data');
+  const strDim = data && one(data, 'strDim');
+  const numDim = data && one(data, 'numDim');
+  const catRef = strDim ? textOf(one(strDim, 'f')).trim() : null;
+  const valRef = numDim ? textOf(one(numDim, 'f')).trim() : null;
+  if (!valRef) return null;
+  const main = seriesEls.find((s) => s.attrs.layoutId !== 'paretoLine');
+  const name = main && one(main, 'tx') ? textOf(one(main, 'tx')).trim() : null;
+  const title = chart && one(chart, 'title') ? textOf(one(chart, 'title')).trim() : null;
+  const lines = [
+    `${FENCE}{chart} ${type}${title ? ` "${title.replace(/"/g, '""')}"` : ''} ${fenceAnchor(anchorSpec)}`,
+    'series:',
+    `  - name: ${yaml(name || 'Series 1')}`,
+  ];
+  if (catRef) lines.push(`    cat: ${yaml(catRef)}`);
+  lines.push(`    val: ${yaml(valRef)}`);
+  const legend = chart && one(chart, 'legend');
+  if (legend) {
+    const POS = { l: 'left', r: 'right', t: 'top', b: 'bottom' };
+    lines.push(`legend: { position: ${POS[legend.attrs.pos] ?? 'right'} }`);
+  } else lines.push('legend: { position: none }');
+  lines.push(FENCE, '');
+  return lines;
 }
