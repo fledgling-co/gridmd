@@ -1,0 +1,29 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- GridMD app icon — per GridMD.DESIGN.md: white squircle, moss 2×2 grid
+       glyph with one filled cell, tiny mono "md" tab in the corner. -->
+  <defs>
+    <clipPath id="squircle">
+      <path d="M80 4C22 4 4 22 4 80s18 76 76 76 76-18 76-76S138 4 80 4Z"/>
+    </clipPath>
+  </defs>
+  <!-- squircle base -->
+  <path d="M80 4C22 4 4 22 4 80s18 76 76 76 76-18 76-76S138 4 80 4Z" fill="#FFFFFF"/>
+  <path d="M80 4C22 4 4 22 4 80s18 76 76 76 76-18 76-76S138 4 80 4Z" stroke="#24282214" stroke-width="2"/>
+  <!-- faint graph-paper ruling, clipped to the squircle -->
+  <g clip-path="url(#squircle)" stroke="#35845B" stroke-opacity="0.10" stroke-width="1">
+    <path d="M20 0v160M44 0v160M68 0v160M92 0v160M116 0v160M140 0v160"/>
+    <path d="M0 20h160M0 44h160M0 68h160M0 92h160M0 116h160M0 140h160"/>
+  </g>
+  <!-- moss 2×2 grid glyph, one filled cell -->
+  <g>
+    <rect x="38" y="38" width="38" height="38" rx="6" stroke="#35845B" stroke-width="5"/>
+    <rect x="84" y="38" width="38" height="38" rx="6" stroke="#35845B" stroke-width="5"/>
+    <rect x="38" y="84" width="38" height="38" rx="6" stroke="#35845B" stroke-width="5"/>
+    <rect x="84" y="84" width="38" height="38" rx="6" fill="#35845B"/>
+  </g>
+  <!-- mono "md" tab -->
+  <g>
+    <rect x="106" y="118" width="34" height="22" rx="5" fill="#DFEDE4" stroke="#35845B" stroke-width="2"/>
+    <text x="123" y="134" text-anchor="middle" font-family="'IBM Plex Mono','SF Mono',Menlo,monospace" font-size="13" font-weight="600" fill="#35845B">md</text>
+  </g>
+</svg>

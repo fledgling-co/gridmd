@@ -1,16 +1,26 @@
-# GridMD
+<div align="center">
 
-**A Markdown-like, portable plain-text format for full-fidelity spreadsheets.**
+<img src="docs/assets/gridmd-logo.svg" width="112" alt="GridMD — moss grid glyph on a white squircle">
 
-GridMD (`.gmd`) is to spreadsheets what Markdown is to documents: a concise,
-human-readable, line-oriented text format that an AI can read and author reliably,
-a database can store and address at block level, a human can edit in any text
-editor, and a converter can round-trip to and from XLSX/ODS.
+# Markdown for *spreadsheets*.
 
-````gridmd
+**GridMD** (`.gmd`) is a plain-text spreadsheet format: concise, line-oriented,
+AI-authorable, database-addressable — and it round-trips to real `.xlsx`
+with **zero silent loss**.
+
+`v0.1 · draft` · MIT · part of the [Fledgling](https://github.com/lprhodes) suite — *plain-text formats, local engines*
+
+[![ci](https://github.com/lprhodes/grid-md/actions/workflows/ci.yml/badge.svg)](https://github.com/lprhodes/grid-md/actions/workflows/ci.yml)
+[![release](https://github.com/lprhodes/grid-md/actions/workflows/release.yml/badge.svg)](https://github.com/lprhodes/grid-md/releases)
+
+</div>
+
+One populated cell is one line. One feature — a chart, a pivot, a validation
+rule — is one fenced block. One file is one workbook:
+
+````text
 ---
 gridmd: "0.1"
-title: Mini example
 names:
   - { name: TaxRate, ref: "Assumptions!$B$2" }
 ---
@@ -22,7 +32,6 @@ names:
 
 ```{table} Sales at A4
 style: medium-2
-cols: { price: { numfmt: "$#,##0.00" } }
 ---
 | id | product  | qty | price | total            |
 | 1  | Widget A | 45  | 12.99 | =[@qty]*[@price] |
@@ -31,42 +40,35 @@ cols: { price: { numfmt: "$#,##0.00" } }
 
 ```{chart} bar "Revenue by product" at E2:K16
 series:
-  - { name: Revenue, cat: Sales[product], val: Sales[total] }
+  - name: Revenue
+    cat: Sales[product]
+    val: Sales[total]
 ```
 ````
 
-## Why
+## The trade every other format makes
 
-Spreadsheet serialization today forces a bad choice. OOXML/ODS carry 100 % of
-Excel's feature surface but are XML archives — token-hostile, undiffable,
-unreadable. CSV/Markdown tables are concise and readable but lose formulas,
-formatting, and everything structural. JSON models (SheetJS, Luckysheet) keep the
-model but drown formulas in escape characters — the exact failure mode that makes
-LLM generation unreliable.
+| | Full fidelity | Human-readable | AI-authorable | Diffs & merges | Cell-addressable in a DB |
+|---|:---:|:---:|:---:|:---:|:---:|
+| OOXML / ODS (zipped XML) | ✅ | ❌ | ❌ token-hostile | ❌ binary blobs | ❌ |
+| CSV / Markdown tables | ❌ formulas & formatting lost | ✅ | ✅ | ✅ | 〰️ rows only |
+| JSON models (SheetJS-style) | 〰️ | ❌ | ❌ escape-character soup | 〰️ | 〰️ |
+| **GridMD** | ✅ *native or carried, never dropped* | ✅ | ✅ | ✅ one cell = one line | ✅ one block = one row |
 
-GridMD takes the empirically strongest ideas from the prior art:
+Design goals, in priority order — when they conflict, the earlier wins:
 
-| Idea | Borrowed from |
-|---|---|
-| Fenced, typed directive blocks with YAML bodies | MyST Markdown / MDX |
-| Sparse cell targeting (`@ A1 …`) — O(1) per populated cell | SocialCalc's command log |
-| Dense pipe-row grids for contiguous data | GFM tables / TOON tabular collapse |
-| Explicit formula ⇄ cached-value duality (`=F :: V`) | OOXML's `<f>`/`<v>` pair |
-| Escape hatch to raw OOXML/JSON for anything exotic | MDX's JSX / Markdown's HTML fall-through |
-| Canonical en-US formula locale on disk | ODF OpenFormula |
-
-One cell edit is one line change. One block is one database row. One file is one
-workbook. And a GridMD file renders acceptably in any Markdown viewer — headings
-are sheets, dense payloads remain readable as pipe rows, and directives are code
-fences.
+1. **LLM-authorable** — low nesting, line-oriented, formulas pasted verbatim with no escaping
+2. **Human-parsable** — hand-editable; renders acceptably in any Markdown viewer
+3. **Database-friendly** — block-addressable; concurrent edits merge cleanly
+4. **Concise** — a cell costs a line; dense data costs ~CSV; empty cells cost nothing
+5. **Full XLSX fidelity** — last in priority, but its *no-silent-loss* rule is absolute
 
 ## A tour, simple to complex
 
-### 1 · The smallest workbook
+<details open>
+<summary><strong>1 · The smallest workbook</strong> — cells, types, and the formula ⇄ cache pair</summary>
 
-One sheet, three cells. `@ <ref> <value>` is the whole grammar you need:
-
-```gridmd
+```text
 ---
 gridmd: "0.1"
 ---
@@ -76,51 +78,41 @@ gridmd: "0.1"
 @ A1 "Hello"
 @ B1 42
 @ C1 =B1*2 :: 84
+@ D1 2026-07-04
+@ E1 '0042
 ```
 
-`C1` shows the two-sided nature of a spreadsheet cell: the formula (`=B1*2`)
-**and** its cached result after ` :: ` (84), so a reader can display the sheet
-without a calculation engine — and a generator that *can't* compute simply
-omits the cache rather than guessing.
+`C1` carries both truths of a spreadsheet cell: the formula **and** its cached
+result after ` :: ` — so a reader can display the sheet without a calc engine,
+and a generator that *can't* compute omits the cache rather than guessing.
+Scalars are typed by shape (`"quoted"` text, numbers, `TRUE`, ISO dates,
+`#DIV/0!` errors); `'0042` is the spreadsheet-style apostrophe forcing text.
 
-### 2 · Types without ceremony
+</details>
 
-Scalars are typed by shape, exactly the way you'd write them:
+<details>
+<summary><strong>2 · Formatting, merges, relative fill</strong></summary>
 
-```gridmd
-# Types
-
-@ A1 Plain text          # bare text
-@ A2 "TRUE"              # quoted → stays text
-@ A3 '0042               # leading apostrophe → forced text, Excel-style
-@ B1 -12.5               # number
-@ B2 TRUE                # boolean
-@ B3 2026-07-04          # date (ISO on disk; serial in .xlsx)
-@ B4 12:30               # time
-@ B5 #DIV/0!             # a real error value
-```
-
-### 3 · Formatting and merges
-
-Properties ride in a `{ … }` map at the end of the line; ranges format in one
-stroke; merging is a range property:
-
-```gridmd
+```text
 # Report
 
-@ A1:D1 { merge: true, align: center, bold: true, fill: "#1F3FA6", color: "#FFFFFF" }
+@ A1:D1 { merge: true, align: center, bold: true, fill: "#35845B", color: "#FFFFFF" }
 @ A1 "Quarterly Report"
 @ B3 45020.5 { numfmt: "$#,##0.00" }
-@ A3:A20 { bold: true }
-@ B4:B20 =B3*1.04        # relative fill: B5 gets =B4*1.04, and so on
+@ B4:B20 =B3*1.04        # range + formula = relative fill: B5 gets =B4*1.04 …
 ```
 
-### 4 · Dense data: tables
+Properties ride in a trailing `{ … }` map — fonts, fills (hex or theme slots
+like `accent1@40`), number formats, borders, alignment, protection, links,
+notes. A range target with a formula fills relatively, exactly like dragging
+in a spreadsheet UI.
 
-Contiguous data goes in pipe rows. A `{table}` is a real Excel table — name,
-banding, filters, total row, and structured references that formulas can use:
+</details>
 
-````gridmd
+<details>
+<summary><strong>3 · Tables with structured references</strong></summary>
+
+````text
 # Sales
 
 ```{table} Sales at A1
@@ -138,17 +130,21 @@ cols:
 @ F1 =SUM(Sales[total])
 ````
 
-### 5 · The full surface
+A `{table}` is the real thing — named, banded, filterable, with a total row —
+and formulas anywhere in the workbook can use `Sales[total]` / `[@qty]`
+structured references.
 
-Conditional formatting, validation, charts, pivots, sparklines, comments —
-each is a fenced directive with a YAML body:
+</details>
 
-````gridmd
+<details>
+<summary><strong>4 · The full surface</strong> — conditional formatting, validation, charts, pivots, sparklines, comments…</summary>
+
+````text
 # Dashboard
 
 ```{cf} B2:B50
 - when: "> 1000"
-  format: { fill: "#E7F6E7" }
+  format: { fill: "#DFEDE4" }
 - bars: { color: accent1 }
 - icons: 3-arrows
 ```
@@ -181,128 +177,128 @@ values:
 ```
 ````
 
-Every one of these becomes the real thing in `.xlsx` — chartML/ChartEx parts,
+Every block becomes the real feature in `.xlsx` — chartML/ChartEx parts,
 pivot caches with refresh-on-load, x14 sparkline groups — and converts back.
-The worked example [examples/quarterly-report.gmd](examples/quarterly-report.gmd)
-exercises nearly the whole catalog across five sheets.
+The directive catalog: `{table}` `{cf}` `{validation}` `{filter}` `{chart}`
+`{sparklines}` `{pivot}` `{slicer}` `{image}` `{shape}` `{textbox}`
+`{checkbox}` `{comments}` `{outline}` `{page}` `{query}` `{script}`
+`{scenario}` `{sheet}` `{grid}` `{spill-cache}` `{raw}`.
+
+The worked example
+[`examples/quarterly-report.gmd`](examples/quarterly-report.gmd) exercises
+nearly the whole catalog across five sheets — including a chart sheet.
+
+</details>
 
 ## When text isn't enough: the escape hatch
 
-GridMD's cardinal rule is **no silent loss**: whatever a converter meets, it
-either represents natively, **carries** verbatim, or fails loudly
-([INTEROP.md](INTEROP.md) fidelity classes F0–F3). Two mechanisms implement
-the "carry" path:
+> [!IMPORTANT]
+> GridMD's cardinal rule is **no silent loss**. Whatever a converter meets, it
+> either represents natively, **carries** verbatim, or fails loudly — those
+> are the only three outcomes ([INTEROP.md](INTEROP.md), fidelity classes
+> F0–F3).
 
-**1 · `fallback:` inside a directive.** When a feature is *mostly*
-expressible but has exotic sub-options the grammar doesn't model (say, a
-chart with picture-fill series), the directive keeps the readable summary
-and attaches the exact source XML. A converter that fully understands the
-directive ignores the fallback; one that doesn't re-emits it untouched:
+Some of a workbook has no sensible plain-text form — a VBA project, an OLE
+object, SmartArt, an exotic chart sub-option. Two mechanisms carry it:
 
-````gridmd
+**`fallback:` inside a directive** — keeps the readable summary, attaches the
+exact source XML. A converter that fully understands the directive ignores
+it; one that doesn't re-emits it untouched:
+
+````text
 ```{chart} column "Revenue" at E2:K16
 series:
-  - { name: Revenue, cat: Sales[item], val: Sales[total] }
+  - { name: Revenue, cat: "Sales[item]", val: "Sales[total]" }
 fallback:
   ooxml: |
     <c:chartSpace xmlns:c="…">…the exact original part…</c:chartSpace>
 ```
 ````
 
-**2 · `{raw}` blocks for whole foreign parts.** Features with no plain-text
-form at all — a VBA project, an OLE object, SmartArt — travel as opaque
-package parts, byte-preserved (base64 for binary) and re-emitted into the
-`.xlsx` at the exact part path they came from:
+**`{raw}` blocks** — whole foreign package parts travel byte-preserved
+(base64 for binary) and re-emit at the exact part path they came from:
 
-````gridmd
+````text
 ```{raw} ooxml part="xl/vbaProject.bin" encoding=base64
 UEsDBBQABgAIAAAAIQ…
 ```
 ````
 
-So a round trip through GridMD never destroys what it can't yet speak: the
-readable 99 % becomes reviewable text, and the rest rides along intact. (The
-same mechanism is how the Go/Rust/Swift/Python ports guarantee lossless
-round-trips while emitting a leaner native core than the TypeScript
-reference — they carry the original document in a custom part,
-`customXml/gridmdCarry.xml`.)
+So a round trip never destroys what it can't yet speak: the readable 99 %
+becomes reviewable text, and the rest rides along intact. The Go / Rust /
+Swift / Python ports use the same mechanism wholesale — they carry the source
+document in a custom package part (`customXml/gridmdCarry.xml`) while
+emitting a leaner native core than the TypeScript reference.
 
-Security note: carried parts are data, not trusted instructions — re-emitting
-them into a macro-enabled container requires explicit consent, and `part=`
-paths are canonicalized against package-part smuggling
-([INTEROP.md §5](INTEROP.md)).
+> [!WARNING]
+> Carried parts are **data, not trusted instructions**: `part=` paths are
+> canonicalized against package-part smuggling, and re-emitting macro-bearing
+> parts into a macro-enabled container requires explicit consent
+> ([INTEROP.md §5](INTEROP.md)).
 
-## Implementations
+## Round trip, machine-verified
 
-Five implementations, one conformance contract
-([conformance/README.md](conformance/README.md)): byte-identical canonical
-dumps, identical rejection of invalid documents, and dump-stable
-`gmd → xlsx → gmd` round trips, all enforced in CI.
-
-| Directory | Language | Notes |
-|---|---|---|
-| [js/](js/) | TypeScript (Bun) | The semantic reference. 100 % line coverage; npm package `gridmd`; typechecked and declaration-emitted by tsgo. |
-| [go/](go/) | Go | `go install ./go/cmd/gridmd`; 99.8 % coverage. |
-| [rust/](rust/) | Rust | `cargo build --release` in `rust/`; 95 %+ coverage. |
-| [swift/](swift/) | Swift | SPM package (root `Package.swift`): `.library("GridMD")` + `gridmd` CLI. |
-| [python/](python/) | Python | `pip install -e python/`; PyYAML as the single dependency. |
-
-```bash
-make setup        # install all toolchains' deps
-make test         # every implementation's suite
-make conformance  # the cross-language gate (all three laws, all implementations)
+```mermaid
+graph LR
+    G[".gmd\nplain text"] -->|"to-xlsx"| X[".xlsx\nnative parts + carry"]
+    X -->|"from-xlsx"| G2[".gmd′"]
+    G -->|"dump"| J["canonical model JSON"]
+    G2 -->|"dump"| J2["canonical model JSON"]
+    J -.byte-identical.- J2
 ```
 
-## Spec documents
+Five implementations, one conformance contract
+([conformance/README.md](conformance/README.md)) enforced in CI on every
+push, per implementation:
 
-| File | Contents |
+- **Law 1** — canonical model dumps byte-identical to the shared expectations
+- **Law 2** — every invalid fixture rejected in strict mode
+- **Law 3** — `gmd → xlsx → gmd` round trips dump-stable
+
+| | Language | Highlights |
+|---|---|---|
+| [`js/`](js/) | TypeScript · Bun | The semantic reference. 154 tests, 100 % line coverage; npm package `gridmd`; typechecked + declaration-emitted by tsgo. Full native XLSX emission *and* reverse-parsing of every feature family. |
+| [`go/`](go/) | Go | `go install ./go/cmd/gridmd` · 99.8 % coverage |
+| [`rust/`](rust/) | Rust | `cargo build --release` · 95 %+ coverage |
+| [`swift/`](swift/) | Swift | SPM package (root `Package.swift`): `.library("GridMD")` + `gridmd` CLI |
+| [`python/`](python/) | Python | `pip install -e python/` · PyYAML as the single dependency |
+
+```bash
+make setup        # install every implementation's deps
+make test         # every implementation's suite
+make conformance  # the cross-language gate: all three laws × all implementations
+```
+
+Cached formula values are machine-verified too: `js/bin/gridmd-calc.ts` runs
+a bounded formula evaluator over every ` :: ` cache and refuses fabrication
+(13/13 verified in the worked example, 0 unsupported).
+
+## Documents
+
+| Doc | What it is |
 |---|---|
-| [SPEC.md](SPEC.md) | The core normative spec: document model, frontmatter, sheets, cell grammar, `@` directives, `{grid}`/`{spill-cache}` blocks, formula canon, canonical form, conformance. |
-| [DIRECTIVES.md](DIRECTIVES.md) | The full directive catalog: `{table}`, `{cf}`, `{chart}`, `{pivot}`, `{validation}`, `{filter}`, `{sparklines}`, objects, `{comments}`, `{outline}`, `{page}`, `{query}`, `{script}`, `{slicer}`, `{raw}` and the rest. |
-| [FORMATTING.md](FORMATTING.md) | Style properties, number formats, colors and theme references, built-in cell-style and table-style catalogs, icon sets. |
-| [INTEROP.md](INTEROP.md) | XLSX ⇄ GridMD feature mapping, fidelity classes, database storage model, diff/merge behaviour, security notes. |
-| [examples/quarterly-report.gmd](examples/quarterly-report.gmd) | A thorough worked example: 5 sheets (incl. a chart sheet) exercising nearly every feature. |
-| [src/](src/) + [bin/gridmd-lint.js](bin/gridmd-lint.js) | The reference parser + strict-mode linter (Node, one dependency: `yaml`). `npm install && npm test` runs the 60-test suite; `npm run lint:example` validates the worked example. |
-| [src/xlsx/](src/xlsx/) + [bin/gridmd2xlsx.js](bin/gridmd2xlsx.js) | The GridMD → XLSX transformer: full-feature emission — the worksheet core (cells, formulas + cached values, styles, merges, tables + sort state, CF, validation, filters, names, freeze, protection, notes, page setup) **plus charts (chartML incl. combo/secondary axis/trendlines/error bars), chart sheets, pivots (refresh-on-load caches), sparklines, table slicers, images, textboxes/shapes, threaded comments, and scenarios**. The only carried-not-native features are the four with no documented OOXML form (queries, scripts, in-cell cell controls, rich-value entities) — preserved in-package in `customXml/gridmdCarry1.xml`, never dropped. `npm run xlsx:example`. |
-| [src/xlsx/read.js](src/xlsx/read.js) + [bin/xlsx2gridmd.js](bin/xlsx2gridmd.js) | The XLSX → GridMD importer: reverses the worksheet core natively (cells with date/shared-string/rich-text handling, styles → props, merges, tables + totals/filters/sort, all CF rule kinds, validation, notes, threaded comments, scenarios, sparklines, filters, page setup, names, protection, views); parts not yet reverse-parsed (charts, drawings, pivots, slicers, media) are carried as `{raw}` blocks. Output self-checks against the linter. `npm run roundtrip:example` runs the full loop: the example's 140 defined cells survive `.gmd → .xlsx → .gmd′` exactly, and `.gmd′` lints clean. |
+| [SPEC.md](SPEC.md) | The core normative spec — document model, cell scalar grammar, `@` directives, fences, formula canon, canonical form, conformance modes, EBNF |
+| [DIRECTIVES.md](DIRECTIVES.md) | The full directive catalog, `{table}` through `{raw}` |
+| [FORMATTING.md](FORMATTING.md) | Style properties, number formats, colors/themes/tints, built-in style catalogs, icon sets |
+| [INTEROP.md](INTEROP.md) | XLSX ⇄ GridMD mapping, fidelity classes, database storage model, diff/merge, security |
+| [HANDOVER.md](HANDOVER.md) | Self-contained reviewer brief (design rationale + attack surface) |
+| [conformance/](conformance/) | The cross-language contract: fixtures, expected dumps, the three laws |
 
-## Design goals (in priority order)
-
-1. **LLM-authorable.** Low nesting, line-oriented, no escape-character hell.
-   Formulas are payloads isolated from structural grammar — an Excel formula is
-   pasted into a GridMD file verbatim.
-2. **Human-parsable.** Readable and hand-editable in a text editor; renders
-   passably as Markdown.
-3. **Database-friendly.** Block-addressable; a single cell is reachable without
-   parsing the whole document; concurrent edits to different blocks merge cleanly.
-4. **Concise.** A populated cell costs one line. Dense data costs ~CSV. Empty
-   cells cost nothing.
-5. **Full Excel fidelity.** Everything in the XLSX feature surface is representable
-   — natively where the grammar covers it, via the `{raw}` escape hatch where it
-   does not. Nothing is silently dropped.
-
-When goals conflict, the earlier goal wins — except goal 5's *no silent loss*
-rule, which is absolute.
-
-## Status
-
-**Version 0.1 — draft.** The grammar is specified and the reference
-implementation is **feature-complete in both directions**: every chart family
-(classic chartML incl. radar/bubble/stock/-3d; ChartEx treemap/sunburst/
-waterfall/funnel/histogram/pareto/box-whisker/map), PivotCharts, pivot
-timelines, pivots, sparklines, slicers, images, shapes, threaded comments and
-scenarios emit natively AND reverse-parse; the worked example round-trips
-`.gmd → .xlsx → .gmd′` with its 140 cells intact; and every cached value is
-machine-verified by the bounded formula evaluator (`gridmd-calc`: 13/13, 0
-unsupported). Go, Rust and Swift ports plus the Bun/TS/npm packaging are in
-flight — see PLAN.md and conformance/README.md. The one check impossible on
-this machine remains the **open-in-real-Excel test** (structural verification
-only). Naming is provisional: *GridMD* is the spec/working name; *SheetMark*
-is the leading marketing-name candidate.
+> [!NOTE]
+> **Status: v0.1 draft.** The format and all five implementations are
+> feature-complete in both directions and conformance-gated in CI. The one
+> check no CI can do: opening the output in real desktop spreadsheet apps at
+> scale — the packages are structurally verified (zip integrity, XML
+> well-formedness, schema-shaped parts) and round-trip-verified. Naming is
+> provisional: *GridMD* is the spec name; *SheetMark* is the leading
+> marketing-name candidate.
 
 ## Non-goals
 
-- Replacing XLSX as the archival/exchange format for existing Excel estates.
-- Representing VBA/binary payloads as anything richer than an opaque block.
-- Capturing transient application state (window arrangement, cursor position,
-  clipboard, undo history).
+- Replacing XLSX as the archival/exchange format for existing spreadsheet estates
+- Representing VBA/binary payloads as anything richer than an opaque carried block
+- Capturing transient application state (windows, cursors, undo history)
+
+<div align="center">
+<sub>GridMD is a <a href="https://github.com/lprhodes">Fledgling</a> format — a sibling of <strong>Typewright</strong> (documents), <strong>Lattice</strong> (the editor that speaks GridMD natively), and <strong>Lectern</strong> (decks).</sub>
+</div>
