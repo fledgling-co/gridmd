@@ -12,10 +12,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: cd js && bun install
-      - name: test (bun once migrated, node:test until then)
+      - name: typecheck (tsgo — native TS compiler)
+        run: cd js && bun run typecheck
+      - name: test + coverage gate (100% lines)
+        run: cd js && bun test --coverage
+      - name: build + verify dist runs under plain node
         run: |
-          cd js
-          if [ -f bunfig.toml ]; then bun test; else node --test 'test/*.test.js'; fi
+          cd js && bun run build
+          node dist/bin/gridmd-lint.js ../examples/quarterly-report.gmd
 
   go:
     runs-on: ubuntu-latest

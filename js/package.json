@@ -1,21 +1,45 @@
 {
   "name": "gridmd",
   "version": "0.1.0",
-  "private": true,
-  "description": "GridMD reference parser + linter (spec: SPEC.md)",
+  "description": "GridMD reference parser, linter and two-way XLSX converter (spec: SPEC.md)",
   "type": "module",
-  "bin": {
-    "gridmd-lint": "bin/gridmd-lint.js",
-    "gridmd2xlsx": "bin/gridmd2xlsx.js",
-    "xlsx2gridmd": "bin/xlsx2gridmd.js"
+  "license": "MIT",
+  "repository": "github:lprhodes/grid-md",
+  "engines": {
+    "node": ">=20"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "gridmd-lint": "dist/bin/gridmd-lint.js",
+    "gridmd2xlsx": "dist/bin/gridmd2xlsx.js",
+    "xlsx2gridmd": "dist/bin/xlsx2gridmd.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "test": "node --test 'test/*.test.js'",
-    "lint:example": "node bin/gridmd-lint.js ../examples/quarterly-report.gmd",
-    "xlsx:example": "node bin/gridmd2xlsx.js ../examples/quarterly-report.gmd -o ../examples/quarterly-report.xlsx",
-    "roundtrip:example": "node bin/gridmd2xlsx.js ../examples/quarterly-report.gmd -o ../examples/quarterly-report.xlsx && node bin/xlsx2gridmd.js ../examples/quarterly-report.xlsx -o ../examples/quarterly-report.roundtrip.gmd && node bin/gridmd-lint.js ../examples/quarterly-report.roundtrip.gmd"
+    "build": "bun run scripts/build.ts",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "lint:example": "bun bin/gridmd-lint.ts ../examples/quarterly-report.gmd",
+    "xlsx:example": "bun bin/gridmd2xlsx.ts ../examples/quarterly-report.gmd -o ../examples/quarterly-report.xlsx",
+    "roundtrip:example": "bun bin/gridmd2xlsx.ts ../examples/quarterly-report.gmd -o ../examples/quarterly-report.xlsx && bun bin/xlsx2gridmd.ts ../examples/quarterly-report.xlsx -o ../examples/quarterly-report.roundtrip.gmd && bun bin/gridmd-lint.ts ../examples/quarterly-report.roundtrip.gmd",
+    "dump": "bun bin/gridmd-dump.ts",
+    "prepublishOnly": "bun run typecheck && bun run build && bun test",
+    "typecheck:tsc": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "yaml": "^2.5.0"
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@typescript/native-preview": "^7.0.0-dev.20260704.1",
+    "typescript": "latest"
   }
 }

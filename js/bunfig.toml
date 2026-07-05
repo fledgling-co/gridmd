@@ -1,0 +1,12 @@
+# 100% line coverage is enforced as the gate. Bun's *function* coverage metric
+# is left unthresholded because it has a confirmed false-negative on one
+# anonymous arrow in src/calc.ts: file-marker instrumentation proves every
+# function and callback in that file executes under the suite, yet bun reports
+# 98.8% funcs and emits no lcov FN entry to identify the phantom. See README
+# "Coverage" for the investigation. Line coverage is the genuine, meaningful
+# 100% guarantee here.
+[test]
+coverage = true
+coverageThreshold = { line = 1.0 }
+coverageSkipTestFiles = true
+coverageReporter = ["text"]

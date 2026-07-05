@@ -49,30 +49,17 @@ swift/            Swift sources; root Package.swift for SPM (runner-built)
 - [~] #5 Go port — Opus/xhigh runner LAUNCHED (workflow wf_dfc76715-365)
 - [~] #6 Rust port — Opus/xhigh runner LAUNCHED (same workflow)
 - [~] #7 Swift port + SPM — Opus/xhigh runner LAUNCHED (same workflow)
-- [~] #3 UNPAUSED with Luke's decisions: npm name `gridmd`, FULL strict-TS
+- [x] #3 DONE — strict-TS on Bun landed (153→154 tests, 100% lines / 99.94% funcs with the one documented Bun function-metric artifact), typecheck AND d.ts emit on tsgo (tsc = fallback script only), npm-packaged as `gridmd` (dist verified under plain node). Was: UNPAUSED with Luke's decisions: npm name `gridmd`, FULL strict-TS
       port, private GitHub repo (github.com/lprhodes/grid-md, pushed). TS/Bun
       migration runner LAUNCHED (workflow wf_0f32ce5e-c85, Opus xhigh).
 - [x] #5/#6/#7 Ports DELIVERED + independently verified: each 11/11 on the
       three laws (Go 99.8% cov · Rust 95.2% justified · Swift 90 XCTests).
-- [~] #8 CI (.github/workflows/ci.yml: 4 language jobs + macOS cross-language
+- [x] #8 CI (.github/workflows/ci.yml: 4 language jobs + macOS cross-language
       conformance job) + release.yml (tag → go/rust/swift binaries on GitHub
       Release; npm publish no-ops until NPM_TOKEN secret exists) + Makefile
       (`make setup` / `make test` / `make conformance`) + scripts/conformance.sh.
 
-## Post-migration pass (apply as soon as the TS runner lands — owner: main loop)
-
-1. **tsgo everywhere possible (Luke's directive 2026-07-05):** add
-   `@typescript/native-preview` devDep; `typecheck` script = `tsgo --noEmit`
-   (the fast native TS7 compiler), keep `typecheck:tsc` ONLY as fallback for
-   constructs tsgo can't handle yet. Try `tsgo` for declaration emit too
-   (`--emitDeclarationOnly`); if it can't yet, tsc stays for d.ts emit ONLY —
-   never for typechecking. CI js job runs tsgo typecheck before bun test.
-2. Fix the KNOWN BUG below in the migrated .ts importer.
-3. Re-run `make conformance` expecting all four implementations 11/11.
-4. Verify runner claims (bun test + coverage gate + built dist under plain
-   node), commit, push, then tag v0.1.0 to exercise release.yml.
-
-## KNOWN BUG (fix in TS after the migration runner lands)
+## RESOLVED 2026-07-05: note-loss bug
 
 `scripts/conformance.sh` cross-gate caught a real JS-reference defect the
 ports don't have: round-tripping `conformance/fixtures/02-structure.gmd`
@@ -81,7 +68,7 @@ loses the note on `@ B4` (a note-only cell with no content). Cause:
 a comments-part ref with no matching cell is dropped. Fix: after the cell
 loop, emit standalone `@ <ref>` + `note:` blocks for unconsumed noteByRef
 entries; add 02-structure (all four fixtures) to the JS round-trip test.
-Until fixed, `make conformance` reports js law3 3/4.
+FIXED in read.ts (annotation-only note blocks emitted post-cell-loop) + a law-3 all-fixtures test in the JS suite. `make conformance`: all four implementations 11/11, gate exit 0.
 
 ## Port runner contract (tasks #5–#7)
 
