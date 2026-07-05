@@ -62,7 +62,7 @@ fn law3_round_trip_is_dump_stable() {
 fn native_import_of_foreign_xlsx_is_lint_clean() {
     // The JS-written example xlsx has no GridMD carry part → exercises the
     // native (DEFLATE + worksheet) reverse-parser.
-    let bytes = std::fs::read(repo("examples/quarterly-report.xlsx")).unwrap();
+    let bytes = std::fs::read(repo("conformance/fixtures-xlsx/quarterly-report.xlsx")).unwrap();
     let (gmd, report) = xlsx_to_gridmd(&bytes).expect("native import");
     assert!(report.iter().any(|r| r.action == "imported"));
     let res = lint(&gmd, Mode::Strict);
